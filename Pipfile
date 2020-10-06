@@ -1,0 +1,16 @@
+[[source]]
+url = "https://pypi.org/simple"
+verify_ssl = true
+name = "pypi"
+
+[packages]
+pyodbc = "*"
+pandas = "*"
+sqlalchemy = "*"
+atlassian-python-api = "*"
+sqlsorcery = {extras = ["mssql"], version = "*"}
+
+[dev-packages]
+
+[requires]
+python_version = "3"

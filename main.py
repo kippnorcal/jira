@@ -97,10 +97,10 @@ class Connector:
         table = self.table_name("issues")
         columns = {
             "id": "id",
-            "key": "key",
+            "key": "issue_key",
             "fields_issuetype_name": "issue_type",
             "fields_project_id": "project",
-            "fields_epic": "epic",
+            "fields_parent_key": "parent_key",
             "fields_status_name": "status",
             "fields_priority_name": "priority",
             "fields_customfield_10015": "estimate",
@@ -121,16 +121,22 @@ class Connector:
             start = len(issues)
             if start >= data["total"]:
                 break
-        df = pd.json_normalize(issues, sep="_", errors="ignore")
-        df = df[columns.keys()]
-        df.rename(columns=columns, inplace=True)
-        df["created"] = pd.to_datetime(df["created"], utc=True)
-        df["updated"] = pd.to_datetime(df["updated"], utc=True)
-        df["sprint"] = sprint_id
-        self.sql.insert_into(
-            table, df, dtype={"created": DateTime, "updated": DateTime}
-        )
-        logging.info(f"Loaded {len(issues)} issues for sprint {sprint_id} into {table}")
+
+        if issues:
+            # with open("data.json", "a") as f:
+            #     f.write(json.dumps(issues, indent=2))
+            df = pd.json_normalize(issues, sep="_", errors="ignore")
+            df = df[columns.keys()]
+            df.rename(columns=columns, inplace=True)
+            df["created"] = pd.to_datetime(df["created"], utc=True)
+            df["updated"] = pd.to_datetime(df["updated"], utc=True)
+            df["sprint"] = sprint_id
+            self.sql.insert_into(
+                table, df, dtype={"created": DateTime, "updated": DateTime}
+            )
+            logging.info(
+                f"Loaded {len(issues)} issues for sprint {sprint_id} into {table}"
+            )
 
     def get_all_issues(self):
         """
@@ -175,7 +181,7 @@ class Connector:
         table = self.table_name("issue_changes")
 
         changes = self.jira.get_issue_changelog(issue_key)
-        if changes:
+        if changes["histories"]:
             df = pd.json_normalize(
                 changes["histories"],
                 sep="_",
@@ -184,8 +190,14 @@ class Connector:
                 errors="ignore",
             )
             df["issue_key"] = issue_key
-            df["author"] = df["author"].map(lambda a: a.get("displayName"))
-            df["created"] = pd.to_datetime(df["created"], utc=True)
+            if "author" in df.columns:
+                df["author"] = df["author"].map(lambda a: a.get("displayName"))
+            else:
+                df["author"] = None
+            if "created" in df.columns:
+                df["created"] = pd.to_datetime(df["created"], utc=True)
+            else:
+                df["created"] = None
             columns = [
                 "issue_key",
                 "id",
@@ -213,8 +225,8 @@ class Connector:
         df = pd.read_sql_table(table, con=self.sql.engine, schema=self.sql.schema)
         if active:
             active_sprints = self.get_sprint_ids(active=True)
-            df = df[df["sprint"] in active_sprints]
-        return set(df[["key"]].values.flatten().tolist())
+            df = df[df["sprint"].isin(active_sprints)]
+        return set(df[["issue_key"]].values.flatten().tolist())
 
     def get_issue_change_keys(self):
         """
@@ -267,6 +279,66 @@ class Connector:
                 print(e)
                 print(key)
 
+    def get_parent_keys(self):
+        """
+        Return a list of parent issue keys to use for querying parent issues. O
+        """
+        issues_table = self.table_name("issues")
+        issues = pd.read_sql_table(
+            issues_table, con=self.sql.engine, schema=self.sql.schema
+        )
+        issue_parent_keys = set(issues["parent_key"].unique().tolist())
+        issue_parent_keys.remove(None)
+
+        parents_table = self.table_name("parent_issues")
+        if self.table_exists(parents_table):
+            parents = pd.read_sql_table(
+                parents_table, con=self.sql.engine, schema=self.sql.schema
+            )
+            parent_keys = set(parents["issue_key"].unique().tolist())
+            return issue_parent_keys - parent_keys
+        else:
+            return issue_parent_keys
+
+    def get_parent_issues(self):
+        """
+        Extract issue data for parent keys (epics) to separate table
+        for categorizing issues by parent.
+        """
+        table = self.table_name("parent_issues")
+        parent_keys = self.get_parent_keys()
+        columns = {
+            "id": "id",
+            "key": "issue_key",
+            "fields_issuetype_name": "issue_type",
+            "fields_project_id": "project",
+            "fields_status_name": "status",
+            "fields_summary": "summary",
+            "fields_customfield_10042_value": "team",
+            "fields_customfield_10038_value": "goal",
+            "fields_assignee_displayName": "assignee",
+            "fields_creator_displayName": "creator",
+            "fields_customfield_10014": "start_date",
+            "fields_duedate": "due_date",
+            "fields_created": "created",
+            "fields_updated": "updated",
+        }
+        issues = []
+        for parent_key in parent_keys:
+            data = self.jira.get_issue(parent_key)
+            issues.append(data)
+
+        if issues:
+            df = pd.json_normalize(issues, sep="_", errors="ignore")
+            df = df[columns.keys()]
+            df.rename(columns=columns, inplace=True)
+            df["created"] = pd.to_datetime(df["created"], utc=True)
+            df["updated"] = pd.to_datetime(df["updated"], utc=True)
+            self.sql.insert_into(
+                table, df, dtype={"created": DateTime, "updated": DateTime}
+            )
+            logging.info(f"Loaded {len(issues)} parent issues into {table}")
+
 
 @elapsed
 def main():
@@ -276,6 +348,7 @@ def main():
     connector.get_boards()
     connector.get_sprints()
     connector.get_all_issues()
+    connector.get_parent_issues()
     connector.get_all_changes()
 
 

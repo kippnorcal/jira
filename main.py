@@ -45,10 +45,19 @@ class Connector:
         Extract project data from Jira and load into database table.
         """
         table = self.table_name("projects")
-        columns = ["id", "key", "name", "projectTypeKey", "style", "isPrivate"]
+        columns = {
+            "id": "id",
+            "key": "project_key",
+            "name": "name",
+            "projectTypeKey": "project_type",
+            "style": "style",
+            "isPrivate": "isPrivate",
+            "projectCategory_name": "category",
+        }
         projects = self.jira.get_all_projects()
         df = pd.json_normalize(projects, sep="_", errors="ignore")
-        df = df[columns]
+        df = df[columns.keys()]
+        df.rename(columns=columns, inplace=True)
         self.sql.insert_into(table, df, if_exists="replace")
         logging.info(f"Loaded {len(projects)} projects into {table}")
 
@@ -65,12 +74,35 @@ class Connector:
         self.sql.insert_into(table, df, if_exists="replace")
         logging.info(f"Loaded {len(boards)} boards into {table}")
 
+    def get_active_project_id(self):
+        """
+        Returns the ID of the active project to use for querying boards.
+        """
+        table = self.table_name("projects")
+        df = pd.read_sql_table(table, con=self.sql.engine, schema=self.sql.schema)
+        df = df[df["category"] == "Active"]
+        project_id = df[["id"]].values.flatten().tolist()[0]
+        return project_id
+
+    def get_active_board_id(self):
+        """
+        Returns the ID of the board for the active project to use for
+        querying issues.
+        """
+        table = self.table_name("boards")
+        project_id = self.get_active_project_id()
+        df = pd.read_sql_table(table, con=self.sql.engine, schema=self.sql.schema)
+        df = df[df.location_projectId == float(project_id)]
+        board_id = df[["id"]].values.flatten().tolist()[0]
+        return board_id
+
     def get_sprints(self):
         """
         Extract sprint data from Jira and load into database table.
         """
         table = self.table_name("sprints")
-        sprints = self.jira.get_all_sprint("10")  # TODO: Get this board_id dynamically
+        board_id = self.get_active_board_id()
+        sprints = self.jira.get_all_sprint(board_id)
         dates = ["startDate", "endDate", "completeDate"]
         df = pd.json_normalize(sprints["values"], sep="_", errors="ignore")
         df.drop(["self"], axis=1, inplace=True)
@@ -123,8 +155,6 @@ class Connector:
                 break
 
         if issues:
-            # with open("data.json", "a") as f:
-            #     f.write(json.dumps(issues, indent=2))
             df = pd.json_normalize(issues, sep="_", errors="ignore")
             df = df[columns.keys()]
             df.rename(columns=columns, inplace=True)

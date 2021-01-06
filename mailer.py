@@ -36,7 +36,7 @@ class Mailer:
 
     def _attachments(self, msg):
         """Add logs as attachment to email."""
-        filename = "data/app.log"
+        filename = "app.log"
         if os.path.exists(filename):
             with open(filename, "r") as attachment:
                 log = MIMEText(attachment.read())

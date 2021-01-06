@@ -360,6 +360,9 @@ class Connector:
 
         if issues:
             df = pd.json_normalize(issues, sep="_", errors="ignore")
+            custom_fields = [k for k in columns.keys() if "customfield" in k]
+            for field in custom_fields:
+                df[field] = df.get(field)
             df = df[columns.keys()]
             df.rename(columns=columns, inplace=True)
             df["created"] = pd.to_datetime(df["created"], utc=True)

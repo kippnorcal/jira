@@ -108,12 +108,12 @@ class Connector:
         df.drop(["self"], axis=1, inplace=True)
         df = df.astype({col: "datetime64[ns]" for col in dates})
         self.sql.insert_into(table, df, if_exists="replace")
-        logging.info(f"Loaded {len(sprints)} sprints into {table}")
+        logging.info(f"Loaded {len(df)} sprints into {table}")
 
     def get_sprint_ids(self, active=False):
         """
         Return a list of sprint IDs to use for querying issues. Optional
-        param can be passed to only return active and future sprints. 
+        param can be passed to only return active and future sprints.
         """
         table = self.table_name("sprints")
         df = pd.read_sql_table(table, con=self.sql.engine, schema=self.sql.schema)
@@ -185,7 +185,7 @@ class Connector:
 
     def table_exists(self, table_name):
         """
-        Checks if a table already exists in the database. Used for 
+        Checks if a table already exists in the database. Used for
         determining what actions to take for loading depending on
         the existence of prior loaded data.
         """
@@ -336,7 +336,6 @@ class Connector:
         for categorizing issues by parent.
         """
         table = self.table_name("parent_issues")
-        parent_keys = self.get_parent_keys()
         columns = {
             "id": "id",
             "key": "issue_key",
@@ -354,9 +353,15 @@ class Connector:
             "fields_updated": "updated",
         }
         issues = []
-        for parent_key in parent_keys:
-            data = self.jira.get_issue(parent_key)
-            issues.append(data)
+        start = 0
+
+        while True:
+            data = self.jira.jql("issuetype = 'project'", start=start)
+            issues.extend(data["issues"])
+            start = len(issues)
+
+            if start >= data["total"]:
+                break
 
         if issues:
             df = pd.json_normalize(issues, sep="_", errors="ignore")
@@ -368,7 +373,10 @@ class Connector:
             df["created"] = pd.to_datetime(df["created"], utc=True)
             df["updated"] = pd.to_datetime(df["updated"], utc=True)
             self.sql.insert_into(
-                table, df, dtype={"created": DateTime, "updated": DateTime}
+                table,
+                df,
+                dtype={"created": DateTime, "updated": DateTime},
+                if_exists="replace",
             )
             logging.info(f"Loaded {len(issues)} parent issues into {table}")
 
@@ -382,7 +390,7 @@ def main():
     connector.get_sprints()
     connector.get_all_issues()
     connector.get_parent_issues()
-    connector.get_all_changes()
+    # connector.get_all_changes()
 
 
 if __name__ == "__main__":

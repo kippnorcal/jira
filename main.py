@@ -8,6 +8,7 @@ import traceback
 from atlassian import Jira
 import pandas as pd
 from sqlsorcery import MSSQL
+from sqlalchemy import inspect
 from sqlalchemy.types import DateTime
 
 from mailer import Mailer
@@ -189,8 +190,8 @@ class Connector:
         determining what actions to take for loading depending on
         the existence of prior loaded data.
         """
-        return self.sql.engine.dialect.has_table(
-            connection=self.sql.engine, tablename=table_name, schema=self.sql.schema
+        return inspect(self.sql.engine).has_table(
+            table_name=table_name, schema=self.sql.schema
         )
 
     def delete_sprint_issues(self, sprints):

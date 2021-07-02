@@ -157,6 +157,9 @@ class Connector:
 
         if issues:
             df = pd.json_normalize(issues, sep="_", errors="ignore")
+            # sometimes df is missing fields_parent_key
+            if "fields_parent_key" not in df:
+                df["fields_parent_key"] = None
             df = df[columns.keys()]
             df.rename(columns=columns, inplace=True)
             df["created"] = pd.to_datetime(df["created"], utc=True)

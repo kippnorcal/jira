@@ -14,7 +14,7 @@ Data pipeline for Jira issue data used to project plan
 1. Clone this repo
 
 ```
-git clone https://github.com/kipp-bayarea/jira.git
+git clone https://github.com/kippnorcal/jira.git
 ```
 
 2. Install dependencies

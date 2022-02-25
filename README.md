@@ -55,3 +55,7 @@ $ docker build -t jira .
 ```
 $ docker run --rm -it jira
 ```
+
+## Maintenance
+
+* Annual maintenance not required
